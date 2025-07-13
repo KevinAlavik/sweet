@@ -10,6 +10,9 @@ class ASTNode(ABC):
     def compile(self, ctx):
         pass
 
+    def __repr__(self):
+        return str(self)
+
 class Number(ASTNode):
     def __init__(self, value):
         self.value = value
@@ -18,7 +21,10 @@ class Number(ASTNode):
         ctx.stack_depth += 1
         ctx.stack_is_string.append(False)
         return [f"    push {self.value}"]
-    
+
+    def __str__(self):
+        return f"Number({self.value})"
+
 class String(ASTNode):
     def __init__(self, value):
         self.value = value
@@ -35,6 +41,9 @@ class String(ASTNode):
             f"    lea rax, [{label}]",
             "    push rax"
         ]
+
+    def __str__(self):
+        return f'String("{self.value}")'
 
 class BinaryOp(ASTNode):
     def __init__(self, op, left, right):
@@ -67,6 +76,9 @@ class BinaryOp(ASTNode):
         ctx.stack_depth -= 1
         return code
 
+    def __str__(self):
+        return f"BinaryOp(op='{self.op}', left={self.left}, right={self.right})"
+
 class Dup(ASTNode):
     def compile(self, ctx):
         if len(ctx.stack_is_string) < 1:
@@ -75,6 +87,9 @@ class Dup(ASTNode):
         ctx.stack_depth += 1
         ctx.stack_is_string.append(top_is_string)
         return ["    pop rax", "    push rax", "    push rax"]
+
+    def __str__(self):
+        return "Dup()"
 
 class Print(ASTNode):
     def compile(self, ctx):
@@ -100,6 +115,9 @@ class Print(ASTNode):
             "    pop rdi",
             "    call print_int"
         ]
+
+    def __str__(self):
+        return "Print()"
 
 class Compare(ASTNode):
     def __init__(self, left, right):
@@ -127,6 +145,9 @@ class Compare(ASTNode):
         ctx.stack_is_string.append(False)
         ctx.stack_depth -= 1
         return code
+
+    def __str__(self):
+        return f"Compare(left={self.left}, right={self.right})"
 
 class IfElse(ASTNode):
     def __init__(self, condition, if_body, else_body=None):
@@ -159,6 +180,10 @@ class IfElse(ASTNode):
 
         return code
 
+    def __str__(self):
+        else_str = f", else_body={self.else_body}" if self.else_body else ""
+        return f"IfElse(condition={self.condition}, if_body={self.if_body}{else_str})"
+    
 class Parser:
     def __init__(self, lexer):
         self.lexer = lexer

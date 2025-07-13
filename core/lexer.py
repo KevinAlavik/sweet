@@ -109,3 +109,15 @@ class Lexer:
             raise LexerError(f"Unknown character: {self.current_char}", start_line, start_column)
 
         return Token(TokenType.EOF, None, self.line, self.column)
+
+    def lex(self):
+        tokens = []
+        try:
+            while True:
+                token = self.get_next_token()
+                tokens.append(token)
+                if token.type == TokenType.EOF:
+                    break
+            return tokens
+        except LexerError as e:
+            print(e)
