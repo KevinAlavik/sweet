@@ -24,26 +24,47 @@ token_map = {
     "?": TokenType.COMPARE,
 }
 
-keywords = {"if", "else", "end", "dup"}
+keywords = {"if", "else", "end", "dup", "print"}
 
 class Token:
-    def __init__(self, type_, value):
+    def __init__(self, type_, value, line, column):
         self.type = type_
         self.value = value
+        self.line = line
+        self.column = column
     
     def __str__(self):
-        return f'Token({self.type}, {self.value})'
+        return f'Token({self.type}, {self.value}, line={self.line}, col={self.column})'
     
     def __repr__(self):
         return self.__str__()
+
+class LexerError(Exception):
+    def __init__(self, message, line, column):
+        super().__init__(f"Line {line}:{column}: {message}")
+        self.line = line
+        self.column = column
+
+class InterpreterError(Exception):
+    def __init__(self, message, line, column):
+        super().__init__(f"Line {line}:{column}: {message}")
+        self.line = line
+        self.column = column
 
 class Lexer:
     def __init__(self, src):
         self.src = src
         self.pos = 0
+        self.line = 1
+        self.column = 1
         self.current_char = self.src[self.pos] if self.src else None
     
     def advance(self):
+        if self.current_char == '\n':
+            self.line += 1
+            self.column = 1
+        else:
+            self.column += 1
         self.pos += 1
         if self.pos < len(self.src):
             self.current_char = self.src[self.pos]
@@ -56,10 +77,11 @@ class Lexer:
     
     def number(self):
         result = ''
+        start_line, start_column = self.line, self.column
         while self.current_char is not None and self.current_char.isdigit():
             result += self.current_char
             self.advance()
-        return Token(TokenType.NUMBER, int(result))
+        return Token(TokenType.NUMBER, int(result), start_line, start_column)
 
     def get_next_token(self):
         while self.current_char is not None:
@@ -67,13 +89,15 @@ class Lexer:
                 self.skip_whitespace()
                 continue
             
+            start_line, start_column = self.line, self.column
+            
             if self.current_char.isdigit():
                 return self.number()
             
             if self.current_char in token_map:
                 token_type = token_map[self.current_char]
                 self.advance()
-                return Token(token_type, self.current_char)
+                return Token(token_type, self.current_char, start_line, start_column)
             
             if self.current_char.isalpha():
                 start_pos = self.pos
@@ -81,12 +105,13 @@ class Lexer:
                     self.advance()
                 word = self.src[start_pos:self.pos]
                 if word in keywords:
-                    return Token(TokenType.KEYWORD, word)
+                    return Token(TokenType.KEYWORD, word, start_line, start_column)
                 else:
-                    raise Exception(f'Unknown keyword: {word}')
+                    raise LexerError(f"Unknown keyword: {word}", start_line, start_column)
                 
-            raise Exception(f'Unknown character: {self.current_char}')
-        return Token(TokenType.EOF, None)
+            raise LexerError(f"Unknown character: {self.current_char}", start_line, start_column)
+        
+        return Token(TokenType.EOF, None, self.line, self.column)
 
 class Interpreter:
     def __init__(self, lexer):
@@ -95,7 +120,7 @@ class Interpreter:
         self.current_token = self.lexer.get_next_token()
 
     def error(self, msg='Syntax error'):
-        raise Exception(msg)
+        raise InterpreterError(msg, self.current_token.line, self.current_token.column)
 
     def eat(self, expected_type):
         if self.current_token.type == expected_type:
@@ -122,7 +147,6 @@ class Interpreter:
                 elif token.value == "end":
                     depth -= 1
                 elif token.value == "else" and depth == 1:
-                    # Found matching else at same nesting level
                     break
             elif token.type == TokenType.EOF:
                 self.error("Unmatched 'if'")
@@ -183,6 +207,11 @@ class Interpreter:
                 if not self.stack:
                     self.error("Stack is empty for 'dup'")
                 self.stack.append(self.stack[-1])
+            elif token.value == "print":
+                self.eat(TokenType.KEYWORD)
+                if not self.stack:
+                    self.error("Stack is empty for 'print'")
+                print(self.stack[-1])
             else:
                 self.error(f"Unknown keyword: {token.value}")
         else:
@@ -201,9 +230,14 @@ def main():
     with open(sys.argv[1], 'r') as f:
         src = f.read()
 
-    lexer = Lexer(src)
-    interpreter = Interpreter(lexer)
-    print(interpreter.interpret())
+    try:
+        lexer = Lexer(src)
+        interpreter = Interpreter(lexer)
+        stack = interpreter.interpret()
+        print("Final stack:", stack)
+    except (LexerError, InterpreterError) as e:
+        print(f"Error: {str(e)}")
+        sys.exit(1)
     
 if __name__ == "__main__":
     main()
