@@ -106,14 +106,18 @@ class Print(ASTNode):
                 return [
                     "    pop rdi",
                     "    pop rsi",
-                    "    call print_str"
+                    "    push 0",
+                    "    call print_str",
+                    "    add rsp, 8"
                 ]
 
         ctx.stack_is_string.pop()
         ctx.stack_depth -= 1
         return [
             "    pop rdi",
-            "    call print_int"
+            "    push 0",
+            "    call print_int",
+            "    add rsp, 8"
         ]
 
     def __str__(self):

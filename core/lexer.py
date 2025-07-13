@@ -75,6 +75,26 @@ class Lexer:
 
             start_line, start_column = self.line, self.column
 
+            # Handle single-line comments
+            if self.current_char == "/" and self.pos + 1 < len(self.src) and self.src[self.pos + 1] == "/":
+                self.advance()  # consume first /
+                self.advance()  # consume second /
+                while self.current_char is not None and self.current_char != "\n":
+                    self.advance()
+                continue
+
+            # Handle multi-line comments
+            if self.current_char == "/" and self.pos + 1 < len(self.src) and self.src[self.pos + 1] == "*":
+                self.advance()  # consume first /
+                self.advance()  # consume *
+                while self.current_char is not None:
+                    if self.current_char == "*" and self.pos + 1 < len(self.src) and self.src[self.pos + 1] == "/":
+                        self.advance()  # consume *
+                        self.advance()  # consume /
+                        break
+                    self.advance()
+                continue
+
             if self.current_char.isdigit():
                 return self.number()
 
