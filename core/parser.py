@@ -264,6 +264,70 @@ class Call(ASTNode):
     def __str__(self):
         return f"Call(func={self.func}, arg_count={self.arg_count})"
 
+class VarDef(ASTNode):
+    def __init__(self, name, size):
+        self.name = name
+        self.size = size
+
+    def compile(self, ctx):
+        label = f"{ctx.new_label()}"
+        if not hasattr(ctx, "vars"):
+            ctx.vars = {}
+        if not hasattr(ctx, "var_sizes"):
+            ctx.var_sizes = {}
+
+        ctx.vars[self.name] = label
+        ctx.var_sizes[self.name] = self.size
+
+        code = [
+            f"    mov rdi, {self.size}",
+            f"    push rbp",
+            f"    call new",
+            f"    pop rbp",
+            f"    mov [{label}], rax"
+        ]
+        return code
+
+    def __str__(self):
+        return f"VarDef(name={self.name}, size={self.size})"
+
+class LoadVar(ASTNode):
+    def __init__(self, name):
+        self.name = name
+
+    def compile(self, ctx):
+        if not hasattr(ctx, "vars") or self.name not in ctx.vars:
+            raise Exception(f"Variable '{self.name}' not defined")
+        label = ctx.vars[self.name]
+        ctx.stack_depth += 1
+        ctx.stack_types.append(StackType.NUMBER)
+        return [
+            f"    mov rax, [{label}]",
+            f"    push rax"
+        ]
+
+    def __str__(self):
+        return f"LoadVar(name={self.name})"
+    
+class StoreVar(ASTNode):
+    def __init__(self, name):
+        self.name = name
+
+    def compile(self, ctx):
+        if ctx.stack_depth < 1:
+            raise Exception("Stack underflow in StoreVar")
+        if not hasattr(ctx, "vars") or self.name not in ctx.vars:
+            raise Exception(f"Variable '{self.name}' not defined")
+        label = ctx.vars[self.name]
+        ctx.stack_depth -= 1
+        ctx.stack_types.pop()
+        return [
+            "    pop rax",
+            f"    mov [{label}], rax"
+        ]
+
+    def __str__(self):
+        return f"StoreVar(name={self.name})"
 
 class Parser:
     def __init__(self, lexer, ctx):
@@ -349,6 +413,25 @@ class Parser:
                     self.eat(TokenType.NUMBER)
                     block_stack.append(Extern(name))
                     self.ctx.known_externs[name] = args
+                elif tok.value == "var":
+                    self.eat(TokenType.KEYWORD)
+                    if self.current_token.type != TokenType.IDENTIFIER:
+                        raise ParserError("Expected identifier after var", tok.line, tok.column)
+                    name = self.current_token.value
+                    self.eat(TokenType.IDENTIFIER)
+                    if self.current_token.type != TokenType.NUMBER:
+                        raise ParserError("Expected variable size after variable name", tok.line, tok.column)
+                    size = int(self.current_token.value)
+                    self.eat(TokenType.NUMBER)
+                    block_stack.append(VarDef(name, size))
+                    self.ctx.known_vars.append(name) 
+                elif tok.value == "set":
+                    self.eat(TokenType.KEYWORD)
+                    if self.current_token.type != TokenType.IDENTIFIER:
+                        raise ParserError("Expected variable name after 'set'", tok.line, tok.column)
+                    name = self.current_token.value
+                    self.eat(TokenType.IDENTIFIER)
+                    block_stack.append(StoreVar(name))
                 else:
                     raise ParserError(f"Unsupported keyword: {tok.value}", tok.line, tok.column)
             elif tok.type == TokenType.IDENTIFIER:
@@ -357,6 +440,9 @@ class Parser:
                     self.eat(TokenType.IDENTIFIER)
                     arg_count = self.ctx.known_externs[name]
                     block_stack.append(Call(name, arg_count))
+                elif name in self.ctx.known_vars:
+                    self.eat(TokenType.IDENTIFIER)
+                    block_stack.append(LoadVar(name))
                 else:
                     raise ParserError(f"Unknown identifier: {name}. All known externs: {list(self.ctx.known_externs.keys())}", tok.line, tok.column)
             else:

@@ -15,6 +15,7 @@ class CompileContext:
         self.stack_depth = 0
         self.stack_types = []
         self.known_externs = {}
+        self.known_vars = []
 
     def new_label(self):
         return "sw" + "".join(random.choices(string.ascii_letters + string.digits, k=10))
@@ -25,22 +26,6 @@ class CompileContext:
             self.strings = []
         self.strings.append((label, value))
         return label
-    
-
-    def align_stack_before_call(self):
-        # RSP after pushes is: initial_rsp - 8 * stack_depth
-        # Because call pushes 8, rsp must be 16-byte aligned before call,
-        # so (rsp - 8 * stack_depth) % 16 == 0
-        # Since we do not know initial rsp, assume it's 16 aligned at program start.
-        # Because each push is 8 bytes:
-        # So we want (stack_depth * 8) % 16 == 0 before call
-        # => stack_depth % 2 == 0
-        # If stack_depth is odd, we must fix (subtract 8 bytes, or push dummy)
-
-        if self.stack_depth % 2 != 0:
-            return True
-        return False
-
     
 def gen_asm(out, ast, ctx):
     out.write(";============================================================;\n")
@@ -53,6 +38,7 @@ def gen_asm(out, ast, ctx):
     out.write("extern compare_int\n")
     out.write("extern compare_str\n")
     out.write("extern stdin_getline\n")
+    out.write("extern new\n")
     out.write(";---------- External symbols defined by user ----------;\n")
     for stmt in ast:
         if type(stmt).__name__ == "Extern":
@@ -74,6 +60,11 @@ def gen_asm(out, ast, ctx):
             raw_bytes = value.encode("utf-8").decode("unicode_escape").encode("latin1")
             byte_values = ", ".join(str(b) for b in raw_bytes)
             out.write(f"{label}: db {byte_values}, 0\n")
+    if hasattr(ctx, "vars"):
+        out.write("\nsection .bss\n")
+        for name, label in ctx.vars.items():
+            out.write(f"{label}: resb {ctx.var_sizes[name]}\n")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Sweet v1.0 Compiler for x86_64 Linux (amd64)")
