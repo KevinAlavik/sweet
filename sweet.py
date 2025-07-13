@@ -1,243 +1,87 @@
 #!/bin/env python3
-from enum import Enum, auto
 import sys
+import os
+import subprocess
+import random
+import string
 
+from core.lexer import Lexer, LexerError
+from core.parser import Parser, ParserError
 
-class TokenType(Enum):
-    NUMBER = auto()
-    PLUS = auto()
-    MINUS = auto()
-    MULTIPLY = auto()
-    DIVIDE = auto()
-    KEYWORD = auto()
-    EOF = auto()
-    COMPARE = auto()
+class CompileContext:
+    def __init__(self):
+        self.stack_depth = 0
+        self.stack_is_string = []
 
-    def __str__(self):
-        return self.name
+    def new_label(self):
+        return ''.join(random.choices(string.ascii_letters + string.digits, k=10))
 
-token_map = {
-    "+": TokenType.PLUS,
-    "-": TokenType.MINUS,
-    "*": TokenType.MULTIPLY,
-    "/": TokenType.DIVIDE,
-    "?": TokenType.COMPARE,
-}
-
-keywords = {"if", "else", "end", "dup", "print"}
-
-class Token:
-    def __init__(self, type_, value, line, column):
-        self.type = type_
-        self.value = value
-        self.line = line
-        self.column = column
-    
-    def __str__(self):
-        return f'Token({self.type}, {self.value}, line={self.line}, col={self.column})'
-    
-    def __repr__(self):
-        return self.__str__()
-
-class LexerError(Exception):
-    def __init__(self, message, line, column):
-        super().__init__(f"Line {line}:{column}: {message}")
-        self.line = line
-        self.column = column
-
-class InterpreterError(Exception):
-    def __init__(self, message, line, column):
-        super().__init__(f"Line {line}:{column}: {message}")
-        self.line = line
-        self.column = column
-
-class Lexer:
-    def __init__(self, src):
-        self.src = src
-        self.pos = 0
-        self.line = 1
-        self.column = 1
-        self.current_char = self.src[self.pos] if self.src else None
-    
-    def advance(self):
-        if self.current_char == '\n':
-            self.line += 1
-            self.column = 1
-        else:
-            self.column += 1
-        self.pos += 1
-        if self.pos < len(self.src):
-            self.current_char = self.src[self.pos]
-        else:
-            self.current_char = None
-    
-    def skip_whitespace(self):
-        while self.current_char is not None and self.current_char.isspace():
-            self.advance()
-    
-    def number(self):
-        result = ''
-        start_line, start_column = self.line, self.column
-        while self.current_char is not None and self.current_char.isdigit():
-            result += self.current_char
-            self.advance()
-        return Token(TokenType.NUMBER, int(result), start_line, start_column)
-
-    def get_next_token(self):
-        while self.current_char is not None:
-            if self.current_char.isspace():
-                self.skip_whitespace()
-                continue
-            
-            start_line, start_column = self.line, self.column
-            
-            if self.current_char.isdigit():
-                return self.number()
-            
-            if self.current_char in token_map:
-                token_type = token_map[self.current_char]
-                self.advance()
-                return Token(token_type, self.current_char, start_line, start_column)
-            
-            if self.current_char.isalpha():
-                start_pos = self.pos
-                while self.current_char is not None and self.current_char.isalnum():
-                    self.advance()
-                word = self.src[start_pos:self.pos]
-                if word in keywords:
-                    return Token(TokenType.KEYWORD, word, start_line, start_column)
-                else:
-                    raise LexerError(f"Unknown keyword: {word}", start_line, start_column)
-                
-            raise LexerError(f"Unknown character: {self.current_char}", start_line, start_column)
-        
-        return Token(TokenType.EOF, None, self.line, self.column)
-
-class Interpreter:
-    def __init__(self, lexer):
-        self.lexer = lexer
-        self.stack = []
-        self.current_token = self.lexer.get_next_token()
-
-    def error(self, msg='Syntax error'):
-        raise InterpreterError(msg, self.current_token.line, self.current_token.column)
-
-    def eat(self, expected_type):
-        if self.current_token.type == expected_type:
-            self.current_token = self.lexer.get_next_token()
-        else:
-            self.error(f"Expected {expected_type}, got {self.current_token.type}")
-
-    def apply_operator(self, op_func, symbol):
-        if len(self.stack) < 2:
-            self.error(f"Not enough values on stack for '{symbol}'")
-        
-        b = self.stack.pop()
-        a = self.stack.pop()
-        result = op_func(a, b)
-        self.stack.append(result)
-
-    def skip_to_else_or_end(self):
-        depth = 1
-        while depth > 0:
-            token = self.lexer.get_next_token()
-            if token.type == TokenType.KEYWORD:
-                if token.value == "if":
-                    depth += 1
-                elif token.value == "end":
-                    depth -= 1
-                elif token.value == "else" and depth == 1:
-                    break
-            elif token.type == TokenType.EOF:
-                self.error("Unmatched 'if'")
-        self.current_token = self.lexer.get_next_token()
-
-    def skip_to_end(self):
-        depth = 1
-        while depth > 0:
-            token = self.lexer.get_next_token()
-            if token.type == TokenType.KEYWORD:
-                if token.value == "if":
-                    depth += 1
-                elif token.value == "end":
-                    depth -= 1
-            elif token.type == TokenType.EOF:
-                self.error("Unmatched 'else'")
-        self.current_token = self.lexer.get_next_token()
-
-    def process_token(self, token):
-        if token.type == TokenType.NUMBER:
-            self.stack.append(token.value)
-            self.eat(TokenType.NUMBER)
-
-        elif token.type == TokenType.PLUS:
-            self.eat(TokenType.PLUS)
-            self.apply_operator(lambda a, b: a + b, '+')
-        elif token.type == TokenType.MINUS:
-            self.eat(TokenType.MINUS)
-            self.apply_operator(lambda a, b: a - b, '-')
-        elif token.type == TokenType.MULTIPLY:
-            self.eat(TokenType.MULTIPLY)
-            self.apply_operator(lambda a, b: a * b, '*')
-        elif token.type == TokenType.DIVIDE:
-            self.eat(TokenType.DIVIDE)
-            self.apply_operator(lambda a, b: a / b, '/')
-        elif token.type == TokenType.COMPARE:
-            self.eat(TokenType.COMPARE)
-            if len(self.stack) < 2:
-                self.error("Not enough values on stack for '?'")
-            b = self.stack.pop()
-            a = self.stack.pop()
-            result = 1 if a == b else 0
-            self.stack.append(result)
-
-        elif token.type == TokenType.KEYWORD:
-            if token.value == "if":
-                self.eat(TokenType.KEYWORD)
-                condition = self.stack.pop() if self.stack else 0
-                if not condition:
-                    self.skip_to_else_or_end()
-            elif token.value == "else":
-                self.eat(TokenType.KEYWORD)
-                self.skip_to_end()
-            elif token.value == "end":
-                self.eat(TokenType.KEYWORD)
-            elif token.value == "dup":
-                self.eat(TokenType.KEYWORD)
-                if not self.stack:
-                    self.error("Stack is empty for 'dup'")
-                self.stack.append(self.stack[-1])
-            elif token.value == "print":
-                self.eat(TokenType.KEYWORD)
-                if not self.stack:
-                    self.error("Stack is empty for 'print'")
-                print(self.stack[-1])
-            else:
-                self.error(f"Unknown keyword: {token.value}")
-        else:
-            self.error(f"Unexpected token: {token}")
-
-    def interpret(self):
-        while self.current_token.type != TokenType.EOF:
-            self.process_token(self.current_token)
-        return self.stack
+    def add_string(self, value):
+        label = f"str_{self.new_label()}"
+        if not hasattr(self, "strings"):
+            self.strings = []
+        self.strings.append((label, value))
+        return label
 
 def main():
     if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <input file>")
+        print(f"Usage: {sys.argv[0]} <source file>")
         sys.exit(1)
 
-    with open(sys.argv[1], 'r') as f:
+    input_file = sys.argv[1]
+    output_dir = ".build"
+    os.makedirs(output_dir, exist_ok=True)
+    asm_file = os.path.join(output_dir, "raw.asm")
+    obj_file = os.path.join(output_dir, "raw.o")
+    runtime_obj = os.path.join(output_dir, "runtime.o")
+    executable = sys.argv[1].replace('.sw', '') if input_file.endswith('.sw') else sys.argv[1] + ".out"
+
+    with open(input_file, 'r') as f:
         src = f.read()
 
     try:
         lexer = Lexer(src)
-        interpreter = Interpreter(lexer)
-        stack = interpreter.interpret()
-        print("Final stack:", stack)
-    except (LexerError, InterpreterError) as e:
-        print(f"Error: {str(e)}")
+        parser = Parser(lexer)
+        ast = parser.parse()
+        ctx = CompileContext()
+
+        with open(asm_file, 'w') as out:
+            out.write(";============================================================;\n")
+            out.write("; Generated by Sweet v1.0 Compiler for x86_64 Linux (amd64)  ;\n")
+            out.write(";============================================================;\n")
+            out.write("section .text\n")
+            out.write("extern print_int\n")
+            out.write("extern print_str\n")
+            out.write("global sweet_main\n")
+            out.write("sweet_main:\n")
+            for stmt in ast:
+                out.write('\n'.join(stmt.compile(ctx)) + '\n')
+            if ctx.stack_depth > 0:
+                out.write(f"    ; Cleanup stack ({ctx.stack_depth} leftover)\n")
+                out.write("    " + "\n    ".join(["pop rax"] * ctx.stack_depth) + "\n")
+            out.write("    ret\n")
+            out.write("section .data\n")
+            if hasattr(ctx, "strings"):
+                for label, value in ctx.strings:
+                    raw_bytes = value.encode('utf-8').decode('unicode_escape').encode('latin1')
+                    byte_values = ', '.join(str(b) for b in raw_bytes)
+                    out.write(f"{label}: db {byte_values}\n")
+
+
+        print(f"[+] Assembly written to {asm_file}")
+        subprocess.run(["nasm", "-f", "elf64", asm_file, "-o", obj_file], check=True)
+        print(f"[+] Assembled to {obj_file}")
+        subprocess.run(["gcc", "-c", "runtime.c", "-o", runtime_obj], check=True)
+        print(f"[+] Compiled runtime.c to {runtime_obj}")
+        subprocess.run(["gcc", obj_file, runtime_obj, "-no-pie", "-o", executable], check=True)
+        print(f"[✓] Linked into executable: {executable}")
+
+    except (LexerError, ParserError) as e:
+        print(f"[!] Error: {e}")
         sys.exit(1)
-    
+    except subprocess.CalledProcessError as e:
+        print(f"[!] Build failed: {e}")
+        sys.exit(1)
+
 if __name__ == "__main__":
     main()
