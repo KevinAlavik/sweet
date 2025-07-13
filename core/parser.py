@@ -1,9 +1,14 @@
 from core.lexer import TokenType, LexerError
 from abc import ABC, abstractmethod
+from enum import Enum, auto
 
 class ParserError(Exception):
     def __init__(self, message, line, column):
         super().__init__(f"Parser Error: Line {line}:{column}: {message}")
+
+class StackType(Enum):
+    NUMBER = auto()
+    STRING = auto()
 
 class ASTNode(ABC):
     @abstractmethod
@@ -19,7 +24,7 @@ class Number(ASTNode):
 
     def compile(self, ctx):
         ctx.stack_depth += 1
-        ctx.stack_is_string.append(False)
+        ctx.stack_types.append(StackType.NUMBER)
         return [f"    push {self.value}"]
 
     def __str__(self):
@@ -31,14 +36,10 @@ class String(ASTNode):
 
     def compile(self, ctx):
         label = ctx.add_string(self.value)
-        ctx.stack_depth += 2
-        ctx.stack_is_string.append(True)
-        ctx.stack_is_string.append(True)
-        raw_bytes = self.value.encode("utf-8").decode("unicode_escape").encode("latin1")
-        length = len(raw_bytes)
+        ctx.stack_depth += 1
+        ctx.stack_types.append(StackType.STRING)
         return [
-            f"    push {length}",
-            f"    lea rax, [{label}]",
+            f"   lea rax, [{label}]",
             "    push rax"
         ]
 
@@ -56,10 +57,13 @@ class BinaryOp(ASTNode):
         code += self.left.compile(ctx)
         code += self.right.compile(ctx)
 
-        if len(ctx.stack_is_string) < 2:
+        if len(ctx.stack_types) < 2:
             raise Exception("Stack underflow in BinaryOp")
-        right_is_string = ctx.stack_is_string.pop()
-        left_is_string = ctx.stack_is_string.pop()
+        right_type = ctx.stack_types.pop()
+        left_type = ctx.stack_types.pop()
+
+        if right_type != StackType.NUMBER or left_type != StackType.NUMBER:
+            raise Exception("Binary operations only supported on numbers")
 
         code += ["    pop rbx", "    pop rax"]
         if self.op == "+":
@@ -70,9 +74,11 @@ class BinaryOp(ASTNode):
             code.append("    imul rax, rbx")
         elif self.op == "/":
             code += ["    cqo", "    idiv rbx"]
+        else:
+            raise Exception(f"Unknown binary operator {self.op}")
         code += ["    push rax"]
 
-        ctx.stack_is_string.append(False)
+        ctx.stack_types.append(StackType.NUMBER)
         ctx.stack_depth -= 1
         return code
 
@@ -81,11 +87,11 @@ class BinaryOp(ASTNode):
 
 class Dup(ASTNode):
     def compile(self, ctx):
-        if len(ctx.stack_is_string) < 1:
+        if len(ctx.stack_types) < 1:
             raise Exception("Stack underflow in Dup")
-        top_is_string = ctx.stack_is_string[-1]
+        top_type = ctx.stack_types[-1]
         ctx.stack_depth += 1
-        ctx.stack_is_string.append(top_is_string)
+        ctx.stack_types.append(top_type)
         return ["    pop rax", "    push rax", "    push rax"]
 
     def __str__(self):
@@ -96,29 +102,25 @@ class Print(ASTNode):
         if ctx.stack_depth == 0:
             raise Exception("Stack underflow in Print")
 
-        if ctx.stack_depth >= 2:
-            top_is_string = ctx.stack_is_string[-1]
-            below_top_is_string = ctx.stack_is_string[-2]
-            if top_is_string and below_top_is_string:
-                ctx.stack_is_string.pop()
-                ctx.stack_is_string.pop()
-                ctx.stack_depth -= 2
-                return [
+        code = []
+        if ctx.stack_depth >= 1 and len(ctx.stack_types) >= 1:
+            _type = ctx.stack_types[-1]
+            if _type == StackType.STRING:
+                ctx.stack_types.pop()
+                ctx.stack_depth -= 1
+                code += [
                     "    pop rdi",
-                    "    pop rsi",
-                    "    push 0",
-                    "    call print_str",
-                    "    add rsp, 8"
+                    "    call print_str"
                 ]
+                return code
 
-        ctx.stack_is_string.pop()
+        ctx.stack_types.pop()
         ctx.stack_depth -= 1
-        return [
+        code += [
             "    pop rdi",
-            "    push 0",
-            "    call print_int",
-            "    add rsp, 8"
+            "    call print_int"
         ]
+        return code
 
     def __str__(self):
         return "Print()"
@@ -133,21 +135,35 @@ class Compare(ASTNode):
         code += self.left.compile(ctx)
         code += self.right.compile(ctx)
 
-        if len(ctx.stack_is_string) < 2:
+        if len(ctx.stack_types) < 2:
             raise Exception("Stack underflow in Compare")
-        right_is_string = ctx.stack_is_string.pop()
-        left_is_string = ctx.stack_is_string.pop()
+        right_type = ctx.stack_types.pop()
+        left_type = ctx.stack_types.pop()
 
-        code += [
-            "    pop rbx",
-            "    pop rax",
-            "    cmp rax, rbx",
-            "    sete al",
-            "    movzx rax, al",
-            "    push rax"
-        ]
-        ctx.stack_is_string.append(False)
-        ctx.stack_depth -= 1
+        print(f"Compare: left_type={left_type}, right_type={right_type}")
+
+        if left_type == StackType.STRING and right_type == StackType.STRING:
+            ctx.stack_depth -= 2
+            code += [
+                "    pop rsi",
+                "    pop rdi",
+                "    call compare_str"
+            ]
+            code += ["    push rax"]
+            ctx.stack_types.append(StackType.NUMBER)
+            ctx.stack_depth += 1
+        elif left_type == StackType.NUMBER and right_type == StackType.NUMBER:
+            ctx.stack_depth -= 2
+            code += [
+                "    pop rsi",
+                "    pop rdi",
+                "    call compare_int"
+            ]
+            code += ["    push rax"]
+            ctx.stack_types.append(StackType.NUMBER)
+            ctx.stack_depth += 1
+        else:
+            raise Exception(f"Cant compare a {left_type} and a {right_type}")
         return code
 
     def __str__(self):
@@ -181,13 +197,12 @@ class IfElse(ASTNode):
             for node in self.else_body:
                 code += node.compile(ctx)
         code += [f"{end_label}:"]
-
         return code
 
     def __str__(self):
         else_str = f", else_body={self.else_body}" if self.else_body else ""
         return f"IfElse(condition={self.condition}, if_body={self.if_body}{else_str})"
-    
+
 class Parser:
     def __init__(self, lexer):
         self.lexer = lexer
@@ -201,7 +216,6 @@ class Parser:
                               self.current_token.line, self.current_token.column)
 
     def parse_block(self, until_keywords):
-        """Parse tokens until one of the until_keywords is encountered."""
         block_stack = []
         while self.current_token.type != TokenType.EOF:
             tok = self.current_token
@@ -249,10 +263,10 @@ class Parser:
                     if_body = self.parse_block(until_keywords={"else", "end"})
                     else_body = None
                     if self.current_token.type == TokenType.KEYWORD and self.current_token.value == "else":
-                        self.eat(TokenType.KEYWORD)  # consume else
+                        self.eat(TokenType.KEYWORD)
                         else_body = self.parse_block(until_keywords={"end"})
                     if self.current_token.type == TokenType.KEYWORD and self.current_token.value == "end":
-                        self.eat(TokenType.KEYWORD)  # consume end
+                        self.eat(TokenType.KEYWORD)
                     else:
                         raise ParserError("Expected \"end\" after if block", tok.line, tok.column)
                     block_stack.append(IfElse(condition, if_body, else_body))
@@ -267,4 +281,3 @@ class Parser:
 
     def parse(self):
         return self.parse_block(until_keywords=set())
-

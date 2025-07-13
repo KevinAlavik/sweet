@@ -1,7 +1,9 @@
-// Push string to the stack then print it
-/* A string is pushed like:
-    1. String length
-    2. String pointer
-*/
-
-"Hello, World!\n"print
+/*===============================*/
+/* Sweet test program            */
+/*===============================*/
+"test" "test" ?
+if
+    "test and test are indeed the same\n"print
+else
+    "test and test are not the same for some reason\n"print
+end

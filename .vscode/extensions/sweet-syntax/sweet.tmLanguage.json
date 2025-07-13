@@ -1,0 +1,69 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Sweet",
+    "scopeName": "source.sweet",
+    "patterns": [
+        {
+            "name": "comment.line.double-slash.sweet",
+            "begin": "//",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.sweet"
+                }
+            },
+            "end": "$\\n?",
+            "patterns": []
+        },
+        {
+            "name": "comment.block.sweet",
+            "begin": "/\\*",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.begin.sweet"
+                }
+            },
+            "end": "\\*/",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.end.sweet"
+                }
+            },
+            "patterns": []
+        },
+        {
+            "name": "string.quoted.double.sweet",
+            "begin": "\"",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.string.begin.sweet"
+                }
+            },
+            "end": "\"",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.definition.string.end.sweet"
+                }
+            },
+            "patterns": [
+                {
+                    "name": "constant.character.escape.sweet",
+                    "match": "\\\\."
+                }
+            ]
+        },
+        {
+            "name": "constant.numeric.integer.sweet",
+            "match": "\\b\\d+\\b"
+        },
+        {
+            "name": "keyword.control.sweet",
+            "match": "\\b(if|else|end|dup|print)\\b"
+        },
+        {
+            "name": "keyword.operator.sweet",
+            "match": "[+\\-*/?]"
+        }
+    ],
+    "repository": {},
+    "scopeName": "source.sweet"
+}
