@@ -28,7 +28,7 @@ class String(ASTNode):
         ctx.stack_depth += 2
         ctx.stack_is_string.append(True)
         ctx.stack_is_string.append(True)
-        raw_bytes = self.value.encode('utf-8').decode('unicode_escape').encode('latin1')
+        raw_bytes = self.value.encode("utf-8").decode("unicode_escape").encode("latin1")
         length = len(raw_bytes)
         return [
             f"    push {length}",
@@ -53,13 +53,13 @@ class BinaryOp(ASTNode):
         left_is_string = ctx.stack_is_string.pop()
 
         code += ["    pop rbx", "    pop rax"]
-        if self.op == '+':
+        if self.op == "+":
             code.append("    add rax, rbx")
-        elif self.op == '-':
+        elif self.op == "-":
             code.append("    sub rax, rbx")
-        elif self.op == '*':
+        elif self.op == "*":
             code.append("    imul rax, rbx")
-        elif self.op == '/':
+        elif self.op == "/":
             code += ["    cqo", "    idiv rbx"]
         code += ["    push rax"]
 
@@ -141,8 +141,8 @@ class IfElse(ASTNode):
             raise Exception("Stack underflow in If condition")
         code += ["    pop rax"]
         ctx.stack_depth -= 1
-        else_label = "else_" + str(ctx.new_label())
-        end_label = "endif_" + str(ctx.new_label())
+        else_label = ctx.new_label()
+        end_label = ctx.new_label()
 
         code += [
             "    cmp rax, 0",
@@ -225,7 +225,7 @@ class Parser:
                     if self.current_token.type == TokenType.KEYWORD and self.current_token.value == "end":
                         self.eat(TokenType.KEYWORD)  # consume end
                     else:
-                        raise ParserError("Expected 'end' after if block", tok.line, tok.column)
+                        raise ParserError("Expected \"end\" after if block", tok.line, tok.column)
                     block_stack.append(IfElse(condition, if_body, else_body))
 
                 else:

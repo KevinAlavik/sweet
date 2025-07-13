@@ -29,7 +29,7 @@ class Token:
         self.column = column
 
     def __str__(self):
-        return f'Token({self.type}, {self.value}, line={self.line}, col={self.column})'
+        return f"Token({self.type}, {self.value}, line={self.line}, col={self.column})"
 
     def __repr__(self):
         return self.__str__()
@@ -47,7 +47,7 @@ class Lexer:
         self.current_char = self.src[self.pos] if self.src else None
 
     def advance(self):
-        if self.current_char == '\n':
+        if self.current_char == "\n":
             self.line += 1
             self.column = 1
         else:
@@ -60,7 +60,7 @@ class Lexer:
             self.advance()
 
     def number(self):
-        result = ''
+        result = ""
         start_line, start_column = self.line, self.column
         while self.current_char is not None and self.current_char.isdigit():
             result += self.current_char
@@ -84,12 +84,12 @@ class Lexer:
                 self.advance()
                 return Token(tok_type, char, start_line, start_column)
 
-            if self.current_char == '"':
+            if self.current_char == "\"":
                 self.advance()
                 start_pos = self.pos
-                while self.current_char is not None and self.current_char != '"':
+                while self.current_char is not None and self.current_char != "\"":
                     self.advance()
-                if self.current_char == '"':
+                if self.current_char == "\"":
                     self.advance()
                     return Token(TokenType.STRING, self.src[start_pos:self.pos-1], start_line, start_column)
                 else:
