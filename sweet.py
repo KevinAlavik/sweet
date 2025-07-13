@@ -5,6 +5,7 @@ import subprocess
 import random
 import string
 import argparse
+import shutil
 
 from core.lexer import Lexer, LexerError
 from core.parser import Parser, ParserError
@@ -34,6 +35,7 @@ def gen_asm(out, ast, ctx):
     out.write("extern print_str\n")
     out.write("extern compare_int\n")
     out.write("extern compare_str\n")
+    out.write("extern stdin_getline\n")
     out.write(";---------- Sweet Program Entry ----------;\n")
     out.write("global sweet_main\n")
     out.write("sweet_main:\n")
@@ -61,6 +63,8 @@ def main():
     parser.add_argument("--ldflags", default="", help="Additional linker flags")
     parser.add_argument("--asflags", default="", help="Additional NASM flags")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("-r", "--run", action="store_true", help="Run the output binary after compilation, then remove it")
+    parser.add_argument("-nc", "--no-clean", action="store_true", help="Remove the build directory after compilation")
 
     args = parser.parse_args()
 
@@ -131,6 +135,15 @@ def main():
 
         subprocess.run(["gcc", obj_file, runtime_obj, "-no-pie", "-o", executable] + ldflags, check=True)
         print(f"[✓] Linked into executable: {executable}")
+
+        if args.run:
+            print(f"[→] Running {executable}...\n")
+            subprocess.run([f"./{executable}"])
+            os.remove(executable)
+            print(f"\n[✓] Removed executable: {executable}")
+
+        if not args.no_clean:
+            shutil.rmtree(output_dir)
 
     except (LexerError, ParserError) as e:
         print(f"[!] Error: {e}")

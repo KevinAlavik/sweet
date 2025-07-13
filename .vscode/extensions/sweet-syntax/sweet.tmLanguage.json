@@ -57,7 +57,7 @@
         },
         {
             "name": "keyword.control.sweet",
-            "match": "\\b(if|else|end|dup|print)\\b"
+            "match": "\\b(if|else|end|dup|print|input)\\b"
         },
         {
             "name": "keyword.operator.sweet",

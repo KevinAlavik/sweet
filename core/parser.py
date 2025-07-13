@@ -39,7 +39,7 @@ class String(ASTNode):
         ctx.stack_depth += 1
         ctx.stack_types.append(StackType.STRING)
         return [
-            f"   lea rax, [{label}]",
+            f"    lea rax, [{label}]",
             "    push rax"
         ]
 
@@ -125,6 +125,20 @@ class Print(ASTNode):
     def __str__(self):
         return "Print()"
 
+class Input(ASTNode):
+    def __str__(self):
+        return "Input()"
+    
+    def compile(self, ctx):
+        code = []
+        code += [
+            "    call stdin_getline",
+            "    push rax"
+        ]
+        ctx.stack_types.append(StackType.STRING)
+        ctx.stack_depth += 1
+        return code
+
 class Compare(ASTNode):
     def __init__(self, left, right):
         self.left = left
@@ -139,8 +153,6 @@ class Compare(ASTNode):
             raise Exception("Stack underflow in Compare")
         right_type = ctx.stack_types.pop()
         left_type = ctx.stack_types.pop()
-
-        print(f"Compare: left_type={left_type}, right_type={right_type}")
 
         if left_type == StackType.STRING and right_type == StackType.STRING:
             ctx.stack_depth -= 2
@@ -254,6 +266,10 @@ class Parser:
                 elif tok.value == "print":
                     self.eat(TokenType.KEYWORD)
                     block_stack.append(Print())
+
+                elif tok.value == "input":
+                    self.eat(TokenType.KEYWORD)
+                    block_stack.append(Input())
 
                 elif tok.value == "if":
                     self.eat(TokenType.KEYWORD)

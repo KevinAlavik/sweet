@@ -19,7 +19,7 @@ token_map = {
     "?": TokenType.COMPARE,
 }
 
-keywords = {"if", "else", "end", "dup", "print"}
+keywords = {"if", "else", "end", "dup", "print", "input"}
 
 class Token:
     def __init__(self, type_, value, line, column):
