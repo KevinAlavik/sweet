@@ -14,6 +14,7 @@ class CompileContext:
     def __init__(self):
         self.stack_depth = 0
         self.stack_types = []
+        self.known_externs = {}
 
     def new_label(self):
         return "sw" + "".join(random.choices(string.ascii_letters + string.digits, k=10))
@@ -24,6 +25,22 @@ class CompileContext:
             self.strings = []
         self.strings.append((label, value))
         return label
+    
+
+    def align_stack_before_call(self):
+        # RSP after pushes is: initial_rsp - 8 * stack_depth
+        # Because call pushes 8, rsp must be 16-byte aligned before call,
+        # so (rsp - 8 * stack_depth) % 16 == 0
+        # Since we do not know initial rsp, assume it's 16 aligned at program start.
+        # Because each push is 8 bytes:
+        # So we want (stack_depth * 8) % 16 == 0 before call
+        # => stack_depth % 2 == 0
+        # If stack_depth is odd, we must fix (subtract 8 bytes, or push dummy)
+
+        if self.stack_depth % 2 != 0:
+            return True
+        return False
+
     
 def gen_asm(out, ast, ctx):
     out.write(";============================================================;\n")
@@ -36,10 +53,16 @@ def gen_asm(out, ast, ctx):
     out.write("extern compare_int\n")
     out.write("extern compare_str\n")
     out.write("extern stdin_getline\n")
+    out.write(";---------- External symbols defined by user ----------;\n")
+    for stmt in ast:
+        if type(stmt).__name__ == "Extern":
+            out.write("\n".join(stmt.compile(ctx)) + "\n")
     out.write(";---------- Sweet Program Entry ----------;\n")
     out.write("global sweet_main\n")
     out.write("sweet_main:\n")
     for stmt in ast:
+        if type(stmt).__name__ == "Extern":
+            continue
         out.write("\n".join(stmt.compile(ctx)) + "\n")
     if ctx.stack_depth > 0:
         out.write(f"    ; Cleanup stack ({ctx.stack_depth} leftover)\n")
@@ -74,6 +97,7 @@ def main():
         with open(input_file, "r") as f:
             src = f.read()
 
+        ctx = CompileContext()
         lexer = Lexer(src)
 
         if args.output_format == "lexer":
@@ -82,7 +106,7 @@ def main():
                 print(token)
             return
 
-        parser_obj = Parser(lexer)
+        parser_obj = Parser(lexer, ctx)
         ast = parser_obj.parse()
 
         if args.output_format == "ast":
@@ -96,7 +120,6 @@ def main():
             print_ast(ast)
             return
 
-        ctx = CompileContext()
 
         if args.output_format == "asm":
             out = sys.stdout

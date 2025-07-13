@@ -215,10 +215,60 @@ class IfElse(ASTNode):
         else_str = f", else_body={self.else_body}" if self.else_body else ""
         return f"IfElse(condition={self.condition}, if_body={self.if_body}{else_str})"
 
+class Extern(ASTNode):
+    def __init__(self, ext):
+        self.ext = ext
+    
+    def compile(self, ctx):
+        code = [
+            f"extern {self.ext}"
+        ]
+        return code;    
+    
+    def __str__(self):
+        return f"Extern(ext={self.ext})"
+
+class Call(ASTNode):
+    def __init__(self, func, arg_count):
+        self.func = func
+        self.arg_count = arg_count
+    
+    def compile(self, ctx):
+        code = []
+        arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
+
+        if ctx.stack_depth < self.arg_count:
+            raise Exception(f"Stack underflow in Call to {self.func}")
+
+        for i in reversed(range(self.arg_count)):
+            code.append(f"    pop {arg_regs[i]}")
+            ctx.stack_types.pop()
+            ctx.stack_depth -= 1
+
+        need_align = ctx.align_stack_before_call()
+        if need_align:
+            code.append("    sub rsp, 8  ; align stack to 16 bytes")
+
+        code.append(f"    call {self.func}")
+
+        if need_align:
+            code.append("    add rsp, 8  ; restore stack alignment")
+
+        ctx.stack_types.append(StackType.NUMBER)
+        ctx.stack_depth += 1
+        code.append("    push rax")
+
+        return code
+
+    def __str__(self):
+        return f"Call(func={self.func}, arg_count={self.arg_count})"
+
+
 class Parser:
-    def __init__(self, lexer):
+    def __init__(self, lexer, ctx):
         self.lexer = lexer
         self.current_token = self.lexer.get_next_token()
+        self.ctx = ctx
 
     def eat(self, type_):
         if self.current_token.type == type_:
@@ -286,10 +336,28 @@ class Parser:
                     else:
                         raise ParserError("Expected \"end\" after if block", tok.line, tok.column)
                     block_stack.append(IfElse(condition, if_body, else_body))
-
+                elif tok.value == "extern":
+                    self.eat(TokenType.KEYWORD)
+                    if self.current_token.type != TokenType.IDENTIFIER:
+                        raise ParserError("Expected identifier after extern", tok.line, tok.column)
+                    name = self.current_token.value
+                    self.eat(TokenType.IDENTIFIER)
+                    if self.current_token.type != TokenType.NUMBER:
+                        raise ParserError("Expected argument count after extern name", tok.line, tok.column)
+                    args = int(self.current_token.value)
+                    self.eat(TokenType.NUMBER)
+                    block_stack.append(Extern(name))
+                    self.ctx.known_externs[name] = args
                 else:
                     raise ParserError(f"Unsupported keyword: {tok.value}", tok.line, tok.column)
-
+            elif tok.type == TokenType.IDENTIFIER:
+                name = tok.value
+                if name in self.ctx.known_externs:
+                    self.eat(TokenType.IDENTIFIER)
+                    arg_count = self.ctx.known_externs[name]
+                    block_stack.append(Call(name, arg_count))
+                else:
+                    raise ParserError(f"Unknown identifier: {name}. All known externs: {list(self.ctx.known_externs.keys())}", tok.line, tok.column)
             else:
                 raise ParserError(f"Unexpected token {tok}", tok.line, tok.column)
 

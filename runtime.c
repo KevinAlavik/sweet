@@ -80,6 +80,11 @@ char *stdin_getline(void)
     return buffer;
 }
 
+void c_func(const char *msg)
+{
+    printf("%s", msg);
+}
+
 int main(void)
 {
     DEBUG_LOG("libsw runtime v1.0");

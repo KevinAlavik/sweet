@@ -7,8 +7,9 @@ class TokenType(Enum):
     MULTIPLY = auto()
     DIVIDE = auto()
     COMPARE = auto()
-    KEYWORD = auto()
     STRING = auto()
+    KEYWORD = auto()
+    IDENTIFIER = auto()
     EOF = auto()
 
 token_map = {
@@ -19,7 +20,7 @@ token_map = {
     "?": TokenType.COMPARE,
 }
 
-keywords = {"if", "else", "end", "dup", "print", "input"}
+keywords = {"if", "else", "end", "dup", "print", "input", "extern"}
 
 class Token:
     def __init__(self, type_, value, line, column):
@@ -117,17 +118,17 @@ class Lexer:
 
             if self.current_char.isalpha():
                 start_pos = self.pos
-                while self.current_char is not None and self.current_char.isalnum():
+                while (
+                    self.current_char is not None and
+                    (self.current_char.isalnum() or self.current_char in "_-")
+                ):
                     self.advance()
                 word = self.src[start_pos:self.pos]
                 if word in keywords:
                     return Token(TokenType.KEYWORD, word, start_line, start_column)
                 else:
-                    raise LexerError(f"Unknown keyword: {word}", start_line, start_column)
-                
-
+                    return Token(TokenType.IDENTIFIER, word, start_line, start_column)  
             raise LexerError(f"Unknown character: {self.current_char}", start_line, start_column)
-
         return Token(TokenType.EOF, None, self.line, self.column)
 
     def lex(self):
