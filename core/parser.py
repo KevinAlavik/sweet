@@ -97,6 +97,7 @@ class Dup(ASTNode):
     def __str__(self):
         return "Dup()"
 
+# Special builtin
 class Print(ASTNode):
     def compile(self, ctx):
         if ctx.stack_depth == 0:
@@ -159,6 +160,7 @@ class Compare(ASTNode):
             code += [
                 "    pop rsi",
                 "    pop rdi",
+                "    push rbp",
                 "    call compare_str"
             ]
             code += ["    push rax"]
@@ -169,9 +171,13 @@ class Compare(ASTNode):
             code += [
                 "    pop rsi",
                 "    pop rdi",
+                "    push rbp",
                 "    call compare_int"
             ]
-            code += ["    push rax"]
+            code += [
+                "    pop rbp",
+                "    push rax"
+            ]
             ctx.stack_types.append(StackType.NUMBER)
             ctx.stack_depth += 1
         else:
@@ -245,14 +251,9 @@ class Call(ASTNode):
             ctx.stack_types.pop()
             ctx.stack_depth -= 1
 
-        need_align = ctx.align_stack_before_call()
-        if need_align:
-            code.append("    sub rsp, 8  ; align stack to 16 bytes")
-
+        code.append(f"    push rbp")
         code.append(f"    call {self.func}")
-
-        if need_align:
-            code.append("    add rsp, 8  ; restore stack alignment")
+        code.append(f"    pop rbp")
 
         ctx.stack_types.append(StackType.NUMBER)
         ctx.stack_depth += 1
