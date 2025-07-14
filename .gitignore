@@ -3,3 +3,5 @@ program
 test
 __pycache__
 out
+.vscode/*
+!.vscode/extensions

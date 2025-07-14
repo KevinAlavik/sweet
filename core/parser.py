@@ -17,6 +17,7 @@ class ASTNode(ABC):
 
     def __repr__(self):
         return str(self)
+    
 
 class Number(ASTNode):
     def __init__(self, value):
@@ -83,7 +84,7 @@ class BinaryOp(ASTNode):
         return code
 
     def __str__(self):
-        return f"BinaryOp(op='{self.op}', left={self.left}, right={self.right})"
+        return f"BinaryOp({self.op}, {self.left}, {self.right})"
 
 class Dup(ASTNode):
     def compile(self, ctx):
@@ -97,7 +98,6 @@ class Dup(ASTNode):
     def __str__(self):
         return "Dup()"
 
-# Special builtin
 class Print(ASTNode):
     def compile(self, ctx):
         if ctx.stack_depth == 0:
@@ -111,7 +111,9 @@ class Print(ASTNode):
                 ctx.stack_depth -= 1
                 code += [
                     "    pop rdi",
-                    "    call print_str"
+                    "    push rbp",
+                    "    call print_str",
+                    "    pop rbp"
                 ]
                 return code
 
@@ -119,7 +121,9 @@ class Print(ASTNode):
         ctx.stack_depth -= 1
         code += [
             "    pop rdi",
-            "    call print_int"
+            "    push rbp",
+            "    call print_int",
+            "    pop rbp"
         ]
         return code
 
@@ -127,18 +131,21 @@ class Print(ASTNode):
         return "Print()"
 
 class Input(ASTNode):
-    def __str__(self):
-        return "Input()"
-    
     def compile(self, ctx):
         code = []
         code += [
+            "    push rbp",
             "    call stdin_getline",
+            "    pop rbp",
             "    push rax"
         ]
         ctx.stack_types.append(StackType.STRING)
         ctx.stack_depth += 1
         return code
+    
+    def __str__(self):
+        return "Input()"
+
 
 class Compare(ASTNode):
     def __init__(self, left, right):
@@ -185,7 +192,7 @@ class Compare(ASTNode):
         return code
 
     def __str__(self):
-        return f"Compare(left={self.left}, right={self.right})"
+        return f"Compare({self.left}, {self.right})"
 
 class IfElse(ASTNode):
     def __init__(self, condition, if_body, else_body=None):
@@ -219,7 +226,7 @@ class IfElse(ASTNode):
 
     def __str__(self):
         else_str = f", else_body={self.else_body}" if self.else_body else ""
-        return f"IfElse(condition={self.condition}, if_body={self.if_body}{else_str})"
+        return f"IfElse({self.condition}, {self.if_body}{else_str})"
 
 class Extern(ASTNode):
     def __init__(self, ext):
@@ -232,7 +239,7 @@ class Extern(ASTNode):
         return code;    
     
     def __str__(self):
-        return f"Extern(ext={self.ext})"
+        return f"Extern({self.ext})"
 
 class Call(ASTNode):
     def __init__(self, func, arg_count):
@@ -262,7 +269,7 @@ class Call(ASTNode):
         return code
 
     def __str__(self):
-        return f"Call(func={self.func}, arg_count={self.arg_count})"
+        return f"Call({self.func}, {self.arg_count})"
 
 class VarDef(ASTNode):
     def __init__(self, name, size):
@@ -289,7 +296,7 @@ class VarDef(ASTNode):
         return code
 
     def __str__(self):
-        return f"VarDef(name={self.name}, size={self.size})"
+        return f"VarDef({self.name}, {self.size})"
 
 class LoadVar(ASTNode):
     def __init__(self, name):
@@ -307,7 +314,7 @@ class LoadVar(ASTNode):
         ]
 
     def __str__(self):
-        return f"LoadVar(name={self.name})"
+        return f"LoadVar({self.name})"
     
 class StoreVar(ASTNode):
     def __init__(self, name):
@@ -327,7 +334,66 @@ class StoreVar(ASTNode):
         ]
 
     def __str__(self):
-        return f"StoreVar(name={self.name})"
+        return f"StoreVar({self.name})"
+
+class Bang(ASTNode):
+    def compile(self, ctx):
+        if ctx.stack_depth == 0 or not ctx.stack_types:
+            raise Exception("Stack underflow in Bang")
+        top_type = ctx.stack_types.pop()
+        ctx.stack_depth -= 1
+        if top_type == StackType.NUMBER:
+            code = []
+            code += ["    pop rax", "    test rax, rax", "    sete al", "    movzx rax, al", "    push rax"]
+            ctx.stack_types.append(StackType.NUMBER)
+            ctx.stack_depth += 1
+            return code
+        raise Exception("Bang operator only supported for numbers")
+    def __str__(self):
+        return "Bang()"
+
+class BangWrapper(ASTNode):
+    def __init__(self, node):
+        self.node = node
+    def compile(self, ctx):
+        code = []
+        code += self.node.compile(ctx)
+        code += Bang().compile(ctx)
+        return code
+    def __str__(self):
+        return f"BangWrapper({self.node})"
+
+class Loop(ASTNode):
+    def __init__(self, condition, body):
+        self.condition = condition
+        self.body = body
+
+    def compile(self, ctx):
+        code = []
+        loop_label = ctx.new_label()
+        end_label = ctx.new_label()
+
+        code += [f"{loop_label}:"]        
+        code += self.condition.compile(ctx)
+        if ctx.stack_depth == 0:
+            raise Exception("Stack underflow in Loop condition")
+        code += ["    pop rax"]
+        ctx.stack_depth -= 1
+        ctx.stack_types.pop()
+
+        code += [
+            "    cmp rax, 0",
+            f"    je {end_label}"
+        ]
+
+        for node in self.body:
+            code += node.compile(ctx)
+        code += [f"    jmp {loop_label}"]
+        code += [f"{end_label}:"]
+        return code
+
+    def __str__(self):
+        return f"Loop({self.condition}, {self.body})"
 
 class Parser:
     def __init__(self, lexer, ctx):
@@ -351,9 +417,13 @@ class Parser:
 
             if tok.type == TokenType.NUMBER:
                 self.eat(TokenType.NUMBER)
-                block_stack.append(Number(tok.value))
+                node = Number(tok.value)
+                if self.current_token.type == TokenType.BANG:
+                    self.eat(TokenType.BANG)
+                    node = BangWrapper(node)
+                block_stack.append(node)
 
-            elif tok.type in (TokenType.PLUS, TokenType.MINUS, TokenType.MULTIPLY, TokenType.DIVIDE):
+            elif tok.type in (TokenType.PLUS, TokenType.MINUS, TokenType.STAR, TokenType.SLASH):
                 self.eat(tok.type)
                 if len(block_stack) < 2:
                     raise ParserError("Not enough operands for binary operator", tok.line, tok.column)
@@ -372,6 +442,10 @@ class Parser:
                 right = block_stack.pop()
                 left = block_stack.pop()
                 block_stack.append(Compare(left, right))
+
+            elif tok.type == TokenType.BANG:
+                self.eat(TokenType.BANG)
+                block_stack.append(Bang())
 
             elif tok.type == TokenType.KEYWORD:
                 if tok.value == "dup":
@@ -401,6 +475,48 @@ class Parser:
                     else:
                         raise ParserError("Expected \"end\" after if block", tok.line, tok.column)
                     block_stack.append(IfElse(condition, if_body, else_body))
+
+                elif tok.value == "loop":
+                    self.eat(TokenType.KEYWORD)
+                    condition = []
+                    while not (self.current_token.type == TokenType.KEYWORD and self.current_token.value == "do"):
+                        if self.current_token.type == TokenType.IDENTIFIER:
+                            if self.current_token.value in self.ctx.known_vars:
+                                condition.append(LoadVar(self.current_token.value))
+                                self.eat(TokenType.IDENTIFIER)
+                            else:
+                                raise ParserError(f"Unknown variable: {self.current_token.value}", tok.line, tok.column)
+                        elif self.current_token.type == TokenType.NUMBER:
+                            condition.append(Number(self.current_token.value))
+                            self.eat(TokenType.NUMBER)
+                        elif self.current_token.type == TokenType.COMPARE:
+                            self.eat(TokenType.COMPARE)
+                            if len(condition) < 2:
+                                raise ParserError("Not enough operands for compare in loop condition", tok.line, tok.column)
+                            right = condition.pop()
+                            left = condition.pop()
+                            condition.append(Compare(left, right))
+                        elif self.current_token.type == TokenType.BANG:
+                            self.eat(TokenType.BANG)
+                            if not condition:
+                                raise ParserError("No operand for bang in loop condition", tok.line, tok.column)
+                            node = condition.pop()
+                            condition.append(BangWrapper(node))
+                        else:
+                            raise ParserError(f"Unexpected token in loop condition: {self.current_token}", tok.line, tok.column)
+                    if not condition:
+                        raise ParserError("No condition provided for loop", tok.line, tok.column)
+                    if len(condition) > 1:
+                        raise ParserError("Multiple conditions in loop", tok.line, tok.column)
+                    condition = condition[0]
+                    self.eat(TokenType.KEYWORD)
+                    loop_body = self.parse_block(until_keywords={"end"})
+                    if self.current_token.type == TokenType.KEYWORD and self.current_token.value == "end":
+                        self.eat(TokenType.KEYWORD)
+                    else:
+                        raise ParserError("Expected \"end\" after loop block", tok.line, tok.column)
+                    block_stack.append(Loop(condition, loop_body))
+
                 elif tok.value == "extern":
                     self.eat(TokenType.KEYWORD)
                     if self.current_token.type != TokenType.IDENTIFIER:
@@ -413,6 +529,7 @@ class Parser:
                     self.eat(TokenType.NUMBER)
                     block_stack.append(Extern(name))
                     self.ctx.known_externs[name] = args
+
                 elif tok.value == "var":
                     self.eat(TokenType.KEYWORD)
                     if self.current_token.type != TokenType.IDENTIFIER:
@@ -424,7 +541,8 @@ class Parser:
                     size = int(self.current_token.value)
                     self.eat(TokenType.NUMBER)
                     block_stack.append(VarDef(name, size))
-                    self.ctx.known_vars.append(name) 
+                    self.ctx.known_vars.append(name)
+
                 elif tok.value == "set":
                     self.eat(TokenType.KEYWORD)
                     if self.current_token.type != TokenType.IDENTIFIER:
@@ -432,8 +550,13 @@ class Parser:
                     name = self.current_token.value
                     self.eat(TokenType.IDENTIFIER)
                     block_stack.append(StoreVar(name))
+
+                elif tok.value == "do" or tok.value == "end":
+                    raise ParserError(f"Unexpected keyword: {tok.value}", tok.line, tok.column)
+
                 else:
                     raise ParserError(f"Unsupported keyword: {tok.value}", tok.line, tok.column)
+
             elif tok.type == TokenType.IDENTIFIER:
                 name = tok.value
                 if name in self.ctx.known_externs:
@@ -445,6 +568,7 @@ class Parser:
                     block_stack.append(LoadVar(name))
                 else:
                     raise ParserError(f"Unknown identifier: {name}. All known externs: {list(self.ctx.known_externs.keys())}", tok.line, tok.column)
+
             else:
                 raise ParserError(f"Unexpected token {tok}", tok.line, tok.column)
 

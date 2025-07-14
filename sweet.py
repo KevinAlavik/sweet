@@ -49,6 +49,7 @@ def gen_asm(out, ast, ctx):
     for stmt in ast:
         if type(stmt).__name__ == "Extern":
             continue
+        out.write(f"    ; {type(stmt).__name__}\n")
         out.write("\n".join(stmt.compile(ctx)) + "\n")
     if ctx.stack_depth > 0:
         out.write(f"    ; Cleanup stack ({ctx.stack_depth} leftover)\n")

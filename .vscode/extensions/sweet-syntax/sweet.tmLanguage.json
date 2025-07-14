@@ -57,11 +57,11 @@
         },
         {
             "name": "keyword.control.sweet",
-            "match": "\\b(if|else|end|dup|print|input|extern|var|set)\\b"
+            "match": "\\b(if|else|end|dup|print|input|extern|var|set|loop|do)\\b"
         },
         {
             "name": "keyword.operator.sweet",
-            "match": "[+\\-*/?]"
+            "match": "[+\\-*/?!]"
         }
     ],
     "repository": {},

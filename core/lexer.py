@@ -4,23 +4,25 @@ class TokenType(Enum):
     NUMBER = auto()
     PLUS = auto()
     MINUS = auto()
-    MULTIPLY = auto()
-    DIVIDE = auto()
+    STAR = auto()
+    SLASH = auto()
     COMPARE = auto()
     STRING = auto()
     KEYWORD = auto()
     IDENTIFIER = auto()
+    BANG = auto()
     EOF = auto()
 
 token_map = {
     "+": TokenType.PLUS,
     "-": TokenType.MINUS,
-    "*": TokenType.MULTIPLY,
-    "/": TokenType.DIVIDE,
+    "*": TokenType.STAR,
+    "/": TokenType.SLASH,
     "?": TokenType.COMPARE,
+    "!": TokenType.BANG,
 }
 
-keywords = {"if", "else", "end", "dup", "print", "input", "extern", "var", "set"}
+keywords = {"if", "else", "end", "dup", "print", "input", "extern", "var", "set", "loop", "do"}
 
 class Token:
     def __init__(self, type_, value, line, column):
