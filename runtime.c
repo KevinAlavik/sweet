@@ -2,8 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <stddef.h>
-#include <stdalign.h>
 
 #ifdef LIBSW_DEBUG
 #define DEBUG_LOG(fmt, ...) \
@@ -19,7 +17,7 @@ typedef struct ArenaBlock
     struct ArenaBlock *next;
     size_t used;
     size_t capacity;
-    alignas(max_align_t) unsigned char data[];
+    unsigned char data[];
 } ArenaBlock;
 
 typedef struct
@@ -36,12 +34,14 @@ static ArenaBlock *arena_block_new(size_t min_capacity)
     {
         block_size = min_capacity + sizeof(ArenaBlock);
     }
+
     ArenaBlock *block = malloc(block_size);
     if (!block)
     {
         fprintf(stderr, "libsw: arena block allocation failed\n");
         exit(EXIT_FAILURE);
     }
+
     block->next = NULL;
     block->used = 0;
     block->capacity = block_size - sizeof(ArenaBlock);
@@ -53,19 +53,15 @@ void arena_init(Arena *arena)
 {
     if (arena->head)
         return;
+
     arena->head = arena_block_new(ARENA_BLOCK_SIZE - sizeof(ArenaBlock));
     DEBUG_LOG("arena: initialized");
 }
 
 void *arena_alloc(Arena *arena, size_t size)
 {
-    size_t align = alignof(max_align_t);
-    size = (size + (align - 1)) & ~(align - 1);
-
     if (!arena->head)
-    {
         arena_init(arena);
-    }
 
     ArenaBlock *block = arena->head;
 
@@ -79,10 +75,12 @@ void *arena_alloc(Arena *arena, size_t size)
             DEBUG_LOG("arena: allocated %zu bytes at %p", size, ptr);
             return ptr;
         }
+
         if (!block->next)
         {
             block->next = arena_block_new(size > ARENA_BLOCK_SIZE ? size : ARENA_BLOCK_SIZE);
         }
+
         block = block->next;
     }
 
@@ -126,10 +124,10 @@ char *stdin_getline(void)
         }
         buffer[length++] = (char)ch;
     }
+
     if (length == 0 && ch == EOF)
-    {
         return NULL;
-    }
+
     buffer[length] = '\0';
     DEBUG_LOG("stdin_getline: read \"%s\"", buffer);
     return buffer;
@@ -140,9 +138,9 @@ void print_int(long val)
     printf("%ld", val);
 }
 
-void print_str(const char *str)
+void print_str(unsigned long size, const char *str)
 {
-    printf("%s", str);
+    printf("%.*s", size, str);
 }
 
 uintptr_t compare_int(uintptr_t a, uintptr_t b)
@@ -163,16 +161,25 @@ uintptr_t compare_str(const char *str1, const char *str2)
     return result;
 }
 
-void *new(size_t size)
+void *new(size_t bit_size)
 {
-    return arena_alloc(&global_arena, size);
+    size_t byte_size = (bit_size + 7) / 8;
+    return arena_alloc(&global_arena, byte_size);
+}
+
+void *new_zero(size_t bit_size)
+{
+    size_t byte_size = (bit_size + 7) / 8;
+    void *ptr = arena_alloc(&global_arena, byte_size);
+    memset(ptr, 0, byte_size);
+    return ptr;
 }
 
 extern void sweet_main(void);
 
 int main(void)
 {
-    DEBUG_LOG("libsw runtime v2.0");
+    DEBUG_LOG("libsw runtime v1.0");
     arena_init(&global_arena);
     sweet_main();
     arena_cleanup(&global_arena);

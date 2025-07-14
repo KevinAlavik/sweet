@@ -6,9 +6,10 @@ class ParserError(Exception):
     def __init__(self, message, line, column):
         super().__init__(f"Parser Error: Line {line}:{column}: {message}")
 
-class StackType(Enum):
-    NUMBER = auto()
-    STRING = auto()
+class BuiltinTypes(Enum):
+    UInt = 0
+    Char = 1
+    InlineString = 2
 
 class ASTNode(ABC):
     @abstractmethod
@@ -25,7 +26,7 @@ class Number(ASTNode):
 
     def compile(self, ctx):
         ctx.stack_depth += 1
-        ctx.stack_types.append(StackType.NUMBER)
+        ctx.stack_types.append(BuiltinTypes.UInt)
         return [f"    push {self.value}"]
 
     def __str__(self):
@@ -38,7 +39,7 @@ class String(ASTNode):
     def compile(self, ctx):
         label = ctx.add_string(self.value)
         ctx.stack_depth += 1
-        ctx.stack_types.append(StackType.STRING)
+        ctx.stack_types.append(BuiltinTypes.InlineString)
         return [
             f"    lea rax, [{label}]",
             "    push rax"
@@ -60,10 +61,10 @@ class BinaryOp(ASTNode):
 
         if len(ctx.stack_types) < 2:
             raise Exception("Stack underflow in BinaryOp")
-        right_type = ctx.stack_types.pop()
-        left_type = ctx.stack_types.pop()
+        right_type = BuiltinTypes(ctx.stack_types.pop())
+        left_type = BuiltinTypes(ctx.stack_types.pop())
 
-        if right_type != StackType.NUMBER or left_type != StackType.NUMBER:
+        if right_type != BuiltinTypes.UInt or left_type != BuiltinTypes.UInt:
             raise Exception("Binary operations only supported on numbers")
 
         code += ["    pop rbx", "    pop rax"]
@@ -79,7 +80,7 @@ class BinaryOp(ASTNode):
             raise Exception(f"Unknown binary operator {self.op}")
         code += ["    push rax"]
 
-        ctx.stack_types.append(StackType.NUMBER)
+        ctx.stack_types.append(BuiltinTypes.UInt)
         ctx.stack_depth -= 1
         return code
 
@@ -98,33 +99,31 @@ class Dup(ASTNode):
     def __str__(self):
         return "Dup()"
 
+
 class Print(ASTNode):
     def compile(self, ctx):
         if ctx.stack_depth == 0:
             raise Exception("Stack underflow in Print")
-
+        typ = BuiltinTypes(ctx.stack_types[-1])
         code = []
-        if ctx.stack_depth >= 1 and len(ctx.stack_types) >= 1:
-            _type = ctx.stack_types[-1]
-            if _type == StackType.STRING:
-                ctx.stack_types.pop()
-                ctx.stack_depth -= 1
-                code += [
-                    "    pop rdi",
-                    "    push rbp",
-                    "    call print_str",
-                    "    pop rbp"
-                ]
-                return code
-
-        ctx.stack_types.pop()
-        ctx.stack_depth -= 1
-        code += [
-            "    pop rdi",
-            "    push rbp",
-            "    call print_int",
-            "    pop rbp"
-        ]
+        if typ in (BuiltinTypes.InlineString, BuiltinTypes.Char):
+            ctx.stack_types.pop()
+            ctx.stack_depth -= 1
+            code += [
+                "    pop rdi",
+                "    push rbp",
+                "    call print_str",
+                "    pop rbp"
+            ]
+        else:
+            ctx.stack_types.pop()
+            ctx.stack_depth -= 1
+            code += [
+                "    pop rdi",
+                "    push rbp",
+                "    call print_int",
+                "    pop rbp"
+            ]
         return code
 
     def __str__(self):
@@ -139,12 +138,13 @@ class Input(ASTNode):
             "    pop rbp",
             "    push rax"
         ]
-        ctx.stack_types.append(StackType.STRING)
+        ctx.stack_types.append(BuiltinTypes.String)
         ctx.stack_depth += 1
         return code
     
     def __str__(self):
         return "Input()"
+
 
 
 class Compare(ASTNode):
@@ -159,36 +159,36 @@ class Compare(ASTNode):
 
         if len(ctx.stack_types) < 2:
             raise Exception("Stack underflow in Compare")
-        right_type = ctx.stack_types.pop()
-        left_type = ctx.stack_types.pop()
+        rt = BuiltinTypes(ctx.stack_types.pop())
+        lt = BuiltinTypes(ctx.stack_types.pop())
 
-        if left_type == StackType.STRING and right_type == StackType.STRING:
+        if lt in (BuiltinTypes.InlineString, BuiltinTypes.Char) and rt in (BuiltinTypes.InlineString, BuiltinTypes.Char):
             ctx.stack_depth -= 2
             code += [
                 "    pop rsi",
                 "    pop rdi",
                 "    push rbp",
-                "    call compare_str"
-            ]
-            code += ["    push rax"]
-            ctx.stack_types.append(StackType.NUMBER)
-            ctx.stack_depth += 1
-        elif left_type == StackType.NUMBER and right_type == StackType.NUMBER:
-            ctx.stack_depth -= 2
-            code += [
-                "    pop rsi",
-                "    pop rdi",
-                "    push rbp",
-                "    call compare_int"
-            ]
-            code += [
+                "    call compare_str",
                 "    pop rbp",
                 "    push rax"
             ]
-            ctx.stack_types.append(StackType.NUMBER)
+            ctx.stack_types.append(BuiltinTypes.UInt)
+            ctx.stack_depth += 1
+        elif lt == BuiltinTypes.UInt and rt == BuiltinTypes.UInt:
+            ctx.stack_depth -= 2
+            code += [
+                "    pop rsi",
+                "    pop rdi",
+                "    push rbp",
+                "    call compare_int",
+                "    pop rbp",
+                "    push rax"
+            ]
+            ctx.stack_types.append(BuiltinTypes.UInt)
             ctx.stack_depth += 1
         else:
-            raise Exception(f"Cant compare a {left_type} and a {right_type}")
+            raise Exception(f"Can't compare {lt} with {rt}")
+
         return code
 
     def __str__(self):
@@ -262,7 +262,7 @@ class Call(ASTNode):
         code.append(f"    call {self.func}")
         code.append(f"    pop rbp")
 
-        ctx.stack_types.append(StackType.NUMBER)
+        ctx.stack_types.append(BuiltinTypes.UInt)
         ctx.stack_depth += 1
         code.append("    push rax")
 
@@ -272,19 +272,17 @@ class Call(ASTNode):
         return f"Call({self.func}, {self.arg_count})"
 
 class VarDef(ASTNode):
-    def __init__(self, name, size):
+    def __init__(self, name, size, t):
         self.name = name
         self.size = size
+        self.type = t
 
     def compile(self, ctx):
         label = f"{ctx.new_label()}"
         if not hasattr(ctx, "vars"):
             ctx.vars = {}
-        if not hasattr(ctx, "var_sizes"):
-            ctx.var_sizes = {}
 
-        ctx.vars[self.name] = label
-        ctx.var_sizes[self.name] = self.size
+        ctx.vars[self.name] = [label, self.size, self.type]
 
         code = [
             f"    mov rdi, {self.size}",
@@ -297,6 +295,33 @@ class VarDef(ASTNode):
 
     def __str__(self):
         return f"VarDef({self.name}, {self.size})"
+    
+
+class ArrayDef(ASTNode):
+    def __init__(self, name, count, unit_size, base_type):
+        self.name      = name
+        self.count     = count
+        self.unit_size = unit_size
+        self.base_type = base_type
+        self.size      = count * unit_size
+
+    def compile(self, ctx):
+        label = ctx.new_label()
+        if not hasattr(ctx, "vars"):
+            ctx.vars = {}
+        ctx.vars[self.name] = [label, self.size, self.base_type, self.count]
+        code = [
+            f"    mov rdi, {self.size}",
+            "    push rbp",
+            "    call new",
+            "    pop rbp",
+            f"    mov [{label}], rax"
+        ]
+        return code
+
+    def __str__(self):
+        return f"ArrayDef({self.name}[{self.count}], base={self.base_type})"
+
 
 class LoadVar(ASTNode):
     def __init__(self, name):
@@ -304,17 +329,40 @@ class LoadVar(ASTNode):
 
     def compile(self, ctx):
         if not hasattr(ctx, "vars") or self.name not in ctx.vars:
-            raise Exception(f"Variable '{self.name}' not defined")
-        label = ctx.vars[self.name]
-        ctx.stack_depth += 1
-        ctx.stack_types.append(StackType.NUMBER)
-        return [
-            f"    mov rax, [{label}]",
-            f"    push rax"
-        ]
+            raise Exception(f"Var '{self.name}' not defined")
+        lbl, size, t, *rest = ctx.vars[self.name]
+        ctx.stack_depth  += 1
+        ctx.stack_types.append(t)
+        return [f"    mov rax, [{lbl}]", "    push rax"]
 
     def __str__(self):
         return f"LoadVar({self.name})"
+
+class LoadVarIdx(ASTNode):
+    def __init__(self, name, idx):
+        self.name = name
+        self.idx = idx
+
+    def compile(self, ctx):
+        if not hasattr(ctx, "vars") or self.name not in ctx.vars:
+            raise Exception(f"Var '{self.name}' not defined")
+
+        label, size_bits, var_type, *rest = ctx.vars[self.name]
+
+        code = [
+            "    xor rax, rax",
+            f"    mov al, [{label} + {self.idx}]",
+            "    push rax"
+        ]
+
+        ctx.stack_depth += 1
+        ctx.stack_types.append(var_type)
+        print("indexed variable with type "+ str(var_type))
+        return code
+
+    def __str__(self):
+        return f"LoadVarIdx({self.name}, {self.idx})"
+
     
 class StoreVar(ASTNode):
     def __init__(self, name):
@@ -322,16 +370,22 @@ class StoreVar(ASTNode):
 
     def compile(self, ctx):
         if ctx.stack_depth < 1:
-            raise Exception("Stack underflow in StoreVar")
+            raise Exception("StoreVar underflow")
         if not hasattr(ctx, "vars") or self.name not in ctx.vars:
-            raise Exception(f"Variable '{self.name}' not defined")
-        label = ctx.vars[self.name]
+            raise Exception(f"Var '{self.name}' not defined")
+        lbl, size, t, count = ctx.vars[self.name]
         ctx.stack_depth -= 1
-        ctx.stack_types.pop()
-        return [
-            "    pop rax",
-            f"    mov [{label}], rax"
-        ]
+        val_type = ctx.stack_types.pop()
+        code = ["    pop rax"]
+        if val_type == BuiltinTypes.InlineString and t == BuiltinTypes.Char:
+            print("memcpy")
+            code += [f"    mov rsi, rax",     # src
+                     f"    mov rdi, [{lbl}]", # dst
+                     f"    mov rdx, {count}",
+                     f"    call memcpy" ]
+        else:
+            code += [f"    mov [{lbl}], rax"]
+        return code
 
     def __str__(self):
         return f"StoreVar({self.name})"
@@ -342,10 +396,10 @@ class Bang(ASTNode):
             raise Exception("Stack underflow in Bang")
         top_type = ctx.stack_types.pop()
         ctx.stack_depth -= 1
-        if top_type == StackType.NUMBER:
+        if top_type == BuiltinTypes.UInt:
             code = []
             code += ["    pop rax", "    test rax, rax", "    sete al", "    movzx rax, al", "    push rax"]
-            ctx.stack_types.append(StackType.NUMBER)
+            ctx.stack_types.append(BuiltinTypes.UInt)
             ctx.stack_depth += 1
             return code
         raise Exception("Bang operator only supported for numbers")
@@ -394,6 +448,19 @@ class Loop(ASTNode):
 
     def __str__(self):
         return f"Loop({self.condition}, {self.body})"
+    
+class BlockExpr(ASTNode):
+    def __init__(self, expressions):
+        self.expressions = expressions
+
+    def compile(self, ctx):
+        code = []
+        for expr in self.expressions:
+            code += expr.compile(ctx)
+        return code
+
+    def __str__(self):
+        return f"BlockExpr({self.expressions})"
 
 class Parser:
     def __init__(self, lexer, ctx):
@@ -415,8 +482,8 @@ class Parser:
             if tok.type == TokenType.KEYWORD and tok.value in until_keywords:
                 break
 
-            if tok.type == TokenType.NUMBER:
-                self.eat(TokenType.NUMBER)
+            if tok.type == TokenType.INTLIT:
+                self.eat(TokenType.INTLIT)
                 node = Number(tok.value)
                 if self.current_token.type == TokenType.BANG:
                     self.eat(TokenType.BANG)
@@ -475,47 +542,23 @@ class Parser:
                     else:
                         raise ParserError("Expected \"end\" after if block", tok.line, tok.column)
                     block_stack.append(IfElse(condition, if_body, else_body))
-
+                
                 elif tok.value == "loop":
                     self.eat(TokenType.KEYWORD)
-                    condition = []
-                    while not (self.current_token.type == TokenType.KEYWORD and self.current_token.value == "do"):
-                        if self.current_token.type == TokenType.IDENTIFIER:
-                            if self.current_token.value in self.ctx.known_vars:
-                                condition.append(LoadVar(self.current_token.value))
-                                self.eat(TokenType.IDENTIFIER)
-                            else:
-                                raise ParserError(f"Unknown variable: {self.current_token.value}", tok.line, tok.column)
-                        elif self.current_token.type == TokenType.NUMBER:
-                            condition.append(Number(self.current_token.value))
-                            self.eat(TokenType.NUMBER)
-                        elif self.current_token.type == TokenType.COMPARE:
-                            self.eat(TokenType.COMPARE)
-                            if len(condition) < 2:
-                                raise ParserError("Not enough operands for compare in loop condition", tok.line, tok.column)
-                            right = condition.pop()
-                            left = condition.pop()
-                            condition.append(Compare(left, right))
-                        elif self.current_token.type == TokenType.BANG:
-                            self.eat(TokenType.BANG)
-                            if not condition:
-                                raise ParserError("No operand for bang in loop condition", tok.line, tok.column)
-                            node = condition.pop()
-                            condition.append(BangWrapper(node))
-                        else:
-                            raise ParserError(f"Unexpected token in loop condition: {self.current_token}", tok.line, tok.column)
-                    if not condition:
+
+                    condition_expr = self.parse_block(until_keywords={"do"})
+                    if not condition_expr:
                         raise ParserError("No condition provided for loop", tok.line, tok.column)
-                    if len(condition) > 1:
-                        raise ParserError("Multiple conditions in loop", tok.line, tok.column)
-                    condition = condition[0]
+
                     self.eat(TokenType.KEYWORD)
+
                     loop_body = self.parse_block(until_keywords={"end"})
                     if self.current_token.type == TokenType.KEYWORD and self.current_token.value == "end":
                         self.eat(TokenType.KEYWORD)
                     else:
-                        raise ParserError("Expected \"end\" after loop block", tok.line, tok.column)
-                    block_stack.append(Loop(condition, loop_body))
+                        raise ParserError('Expected "end" after loop block', tok.line, tok.column)
+
+                    block_stack.append(Loop(BlockExpr(condition_expr), loop_body))
 
                 elif tok.value == "extern":
                     self.eat(TokenType.KEYWORD)
@@ -523,25 +566,42 @@ class Parser:
                         raise ParserError("Expected identifier after extern", tok.line, tok.column)
                     name = self.current_token.value
                     self.eat(TokenType.IDENTIFIER)
-                    if self.current_token.type != TokenType.NUMBER:
+                    if self.current_token.type != TokenType.INTLIT:
                         raise ParserError("Expected argument count after extern name", tok.line, tok.column)
                     args = int(self.current_token.value)
-                    self.eat(TokenType.NUMBER)
+                    self.eat(TokenType.INTLIT)
                     block_stack.append(Extern(name))
                     self.ctx.known_externs[name] = args
 
                 elif tok.value == "var":
                     self.eat(TokenType.KEYWORD)
-                    if self.current_token.type != TokenType.IDENTIFIER:
-                        raise ParserError("Expected identifier after var", tok.line, tok.column)
-                    name = self.current_token.value
+                    name = self.current_token.value; self.eat(TokenType.IDENTIFIER)
+                    self.eat(TokenType.KEYWORD)
+                    base = self.current_token.value
+                    unit_size = self.ctx.type_sizes[self.ctx.type_map[base]]
+                    base_type = self.ctx.type_map[base]
                     self.eat(TokenType.IDENTIFIER)
-                    if self.current_token.type != TokenType.NUMBER:
-                        raise ParserError("Expected variable size after variable name", tok.line, tok.column)
-                    size = int(self.current_token.value)
-                    self.eat(TokenType.NUMBER)
-                    block_stack.append(VarDef(name, size))
+
+                    # array?
+                    if self.current_token.type == TokenType.LBRACK:
+                        self.eat(TokenType.LBRACK)
+                        cnt = int(self.current_token.value); self.eat(TokenType.INTLIT)
+                        self.eat(TokenType.RBRACK)
+                        node = ArrayDef(name, cnt, unit_size, base_type)
+                    else:
+                        # scalar fallback
+                        node = ArrayDef(name, 1, unit_size, base_type)
+
                     self.ctx.known_vars.append(name)
+                    block_stack.append(node)
+
+                    # inline init for arrays only
+                    if isinstance(node, ArrayDef) and self.current_token.type == TokenType.STRING:
+                        lit = self.current_token.value
+                        if len(lit) > node.count:
+                            raise ParserError(f"Literal too long for {name}[{node.count}]", tok.line, tok.column)
+                        block_stack.append(String(lit))
+                        self.eat(TokenType.STRING)
 
                 elif tok.value == "set":
                     self.eat(TokenType.KEYWORD)
@@ -550,12 +610,8 @@ class Parser:
                     name = self.current_token.value
                     self.eat(TokenType.IDENTIFIER)
                     block_stack.append(StoreVar(name))
-
-                elif tok.value == "do" or tok.value == "end":
-                    raise ParserError(f"Unexpected keyword: {tok.value}", tok.line, tok.column)
-
                 else:
-                    raise ParserError(f"Unsupported keyword: {tok.value}", tok.line, tok.column)
+                    raise ParserError(f"Unexpected keyword: {tok.value}", tok.line, tok.column)
 
             elif tok.type == TokenType.IDENTIFIER:
                 name = tok.value
@@ -565,7 +621,15 @@ class Parser:
                     block_stack.append(Call(name, arg_count))
                 elif name in self.ctx.known_vars:
                     self.eat(TokenType.IDENTIFIER)
-                    block_stack.append(LoadVar(name))
+                    if self.current_token.type == TokenType.LBRACK:
+                        self.eat(TokenType.LBRACK)
+                        idx = self.current_token.value
+                        self.eat(TokenType.INTLIT)
+                        print(f"Accessing variable {name} at idx {idx}")
+                        self.eat(TokenType.RBRACK)
+                        block_stack.append(LoadVarIdx(name, idx))
+                    else:
+                        block_stack.append(LoadVar(name))
                 else:
                     raise ParserError(f"Unknown identifier: {name}. All known externs: {list(self.ctx.known_externs.keys())}", tok.line, tok.column)
 

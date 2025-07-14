@@ -1,7 +1,7 @@
 from enum import Enum, auto
 
 class TokenType(Enum):
-    NUMBER = auto()
+    INTLIT = auto()
     PLUS = auto()
     MINUS = auto()
     STAR = auto()
@@ -11,6 +11,8 @@ class TokenType(Enum):
     KEYWORD = auto()
     IDENTIFIER = auto()
     BANG = auto()
+    LBRACK = auto()
+    RBRACK = auto()
     EOF = auto()
 
 token_map = {
@@ -20,9 +22,11 @@ token_map = {
     "/": TokenType.SLASH,
     "?": TokenType.COMPARE,
     "!": TokenType.BANG,
+    "[": TokenType.LBRACK,
+    "]": TokenType.RBRACK,
 }
 
-keywords = {"if", "else", "end", "dup", "print", "input", "extern", "var", "set", "loop", "do"}
+keywords = {"if", "else", "end", "dup", "print", "input", "extern", "var", "set", "loop", "do", "as"}
 
 class Token:
     def __init__(self, type_, value, line, column):
@@ -68,7 +72,7 @@ class Lexer:
         while self.current_char is not None and self.current_char.isdigit():
             result += self.current_char
             self.advance()
-        return Token(TokenType.NUMBER, int(result), start_line, start_column)
+        return Token(TokenType.INTLIT, int(result), start_line, start_column)
 
     def get_next_token(self):
         while self.current_char is not None:
